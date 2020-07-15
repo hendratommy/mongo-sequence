@@ -1,7 +1,5 @@
 # mongo-sequence
 
-mongodb sequence library fo go
-
 Sequence implementation for mongodb. Unlike `sql` databases, `mongodb` doesn't have any built-in functionality to create
 sequence.
 
