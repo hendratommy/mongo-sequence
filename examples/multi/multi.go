@@ -6,12 +6,14 @@ import (
 	"github.com/hendratommy/mongo-sequence/pkg/sequence"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"os"
 	"time"
 )
 
 func main() {
 	// create mongodb client
-	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://root:12345@localhost:27017"))
+	//client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://root:12345@localhost:27017"))
+	client, err := mongo.NewClient(options.Client().ApplyURI(os.Getenv("MONGODB_URI")))
 	if err != nil {
 		panic(err)
 	}

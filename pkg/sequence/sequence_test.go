@@ -151,7 +151,7 @@ func TestConcurrentDefaultSequence(t *testing.T) {
 						t.Errorf("NextVal returned an error: %v", err)
 					}
 					mux.Lock()
-					valMap[val] = valMap[val]+1
+					valMap[val] = valMap[val] + 1
 					mux.Unlock()
 				}()
 			}
@@ -189,10 +189,10 @@ func TestNewSequenceWithExistingColl(t *testing.T) {
 	// this to ensure collection exists, because create collections cannot be done in multi document transactions
 	client.Database(dbName).CreateCollection(ctx(), collName)
 
-	if _, err := client.Database(dbName).Collection(collName).InsertOne(ctx(), bson.M{ "name": seqName, "value": 100 }); err != nil {
+	if _, err := client.Database(dbName).Collection(collName).InsertOne(ctx(), bson.M{"name": seqName, "value": 100}); err != nil {
 		panic(err)
 	}
-	if _, err := client.Database(dbName).Collection(collName).InsertOne(ctx(), bson.M{ "name": wrongSeq, "value": "100" }); err != nil {
+	if _, err := client.Database(dbName).Collection(collName).InsertOne(ctx(), bson.M{"name": wrongSeq, "value": "100"}); err != nil {
 		panic(err)
 	}
 

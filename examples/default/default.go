@@ -12,6 +12,7 @@ import (
 
 func main() {
 	// create mongodb client
+	//client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://root:12345@localhost:27017"))
 	client, err := mongo.NewClient(options.Client().ApplyURI(os.Getenv("MONGODB_URI")))
 	if err != nil {
 		panic(err)
