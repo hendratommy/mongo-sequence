@@ -130,7 +130,7 @@ func TestConcurrentDefaultSequence(t *testing.T) {
 	var wg sync.WaitGroup
 	var (
 		mux    sync.Mutex
-		valMap = make(map[int64]int)
+		valMap = make(map[int]int)
 	)
 	dbName := "con_sequence_test"
 	client := createClient()
@@ -174,6 +174,56 @@ func TestConcurrentDefaultSequence(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(len(results), ShouldEqual, 1)
 			So(results[0]["value"], ShouldEqual, n+1)
+		})
+	})
+}
+
+func TestNewSequenceWithExistingColl(t *testing.T) {
+	client := createClient()
+	dbName := "mySequenceDB_Test"
+	collName := "my_ex_sequences"
+	seqName := "mySeq"
+	wrongSeq := "wrongSeq"
+	// clean test db after test run
+	defer dropDB(client, dbName)
+	// this to ensure collection exists, because create collections cannot be done in multi document transactions
+	client.Database(dbName).CreateCollection(ctx(), collName)
+
+	if _, err := client.Database(dbName).Collection(collName).InsertOne(ctx(), bson.M{ "name": seqName, "value": 100 }); err != nil {
+		panic(err)
+	}
+	if _, err := client.Database(dbName).Collection(collName).InsertOne(ctx(), bson.M{ "name": wrongSeq, "value": "100" }); err != nil {
+		panic(err)
+	}
+
+	Convey("Test sequence with existing sequence", t, func() {
+		Convey("Test existing sequence with correct value", func() {
+			seq := New(client.Database(dbName), collName, timeout())
+			Convey("NextVal should be equals 100", func() {
+				val, err := seq.NextVal(seqName)
+				So(err, ShouldBeNil)
+				So(val, ShouldEqual, 100)
+			})
+			Convey("NextVal should be equals 101", func() {
+				val, err := seq.NextVal(seqName)
+				So(err, ShouldBeNil)
+				So(val, ShouldEqual, 101)
+			})
+			Convey("NextVal should be equals 102", func() {
+				val, err := seq.NextVal(seqName)
+				So(err, ShouldBeNil)
+				So(val, ShouldEqual, 102)
+			})
+		})
+
+		Convey("Test existing sequence with wrong value", func() {
+			seq := New(client.Database(dbName), collName, timeout())
+			Convey("String value should return mongo.CommandError", func() {
+				val, err := seq.NextVal(wrongSeq)
+				So(val, ShouldEqual, 0)
+				So(err, ShouldNotBeNil)
+				So(err, ShouldHaveSameTypeAs, mongo.CommandError{})
+			})
 		})
 	})
 }

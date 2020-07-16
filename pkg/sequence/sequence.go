@@ -2,6 +2,7 @@ package sequence
 
 import (
 	"context"
+	"errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -13,6 +14,8 @@ const (
 	DefaultSequenceName   = "defaultSeq"
 	DefaultTimeout        = 3 * time.Second
 )
+
+var ErrNotIntValueType = errors.New("value type is not int")
 
 type Sequence struct {
 	db             *mongo.Database
@@ -52,7 +55,7 @@ func (s *Sequence) ctx() context.Context {
 
 // NextVal return the value of the sequence with given name then increment it's value,
 // name must not be empty use DefaultSequenceName to use default sequence.
-func (s *Sequence) NextVal(name string) (int64, error) {
+func (s *Sequence) NextVal(name string) (int, error) {
 	opts := options.FindOneAndUpdate().SetUpsert(true)
 	filter := bson.D{{"name", name}}
 	inc := bson.M{"$inc": bson.M{"value": 1}}
@@ -72,19 +75,18 @@ func (s *Sequence) NextVal(name string) (int64, error) {
 		return 0, err
 	}
 
-	var val int64
 	switch v := doc["value"].(type) {
-	case int:
 	case int32:
-		val = int64(v)
+		return int(v), nil
+	case int64:
+		return int(v), nil
 	default:
-		val = v.(int64)
+		return 0, ErrNotIntValueType
 	}
-	return val, nil
 }
 
 // NextVal will use default sequence to return the value of the sequence with given name then increment it's value,
 // name must not be empty use DefaultSequenceName to use default sequence.
-func NextVal(name string) (int64, error) {
+func NextVal(name string) (int, error) {
 	return defaultSeq.NextVal(name)
 }
