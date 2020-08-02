@@ -37,10 +37,10 @@ func ExampleNextVal() {
 	db := client.Database("myDB")
 
 	// clean up test
-	defer func() {
-		_ = db.Drop(context.TODO())
-		_ = client.Disconnect(context.TODO())
-	}()
+    //defer func() {
+    //	_ = db.Drop(context.TODO())
+    //	_ = client.Disconnect(context.TODO())
+    //}()
 
 	// set `sequences` collection to use to store sequence records
 	coll := db.Collection("sequences")
@@ -79,6 +79,12 @@ func ExampleNextVal() {
 	// value is: 3
 	// value is: 1
 }
+```
+
+```bash
+$ db.sequences.find();
+{ "_id" : "defaultSeq", "value" : 4 }
+{ "_id" : "orderSeq", "value" : 2 }
 ```
 
 See [examples](https://github.com/hendratommy/mongo-sequence/tree/master/pkg/sequence/sequence_example_test.go) for more details.
