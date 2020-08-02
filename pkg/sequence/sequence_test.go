@@ -1,12 +1,13 @@
-package sequence
+package sequence_test
 
 import (
 	"context"
-	"fmt"
-	. "github.com/smartystreets/goconvey/convey"
+	"github.com/hendratommy/mongo-sequence/pkg/sequence"
+	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"log"
 	"os"
 	"sync"
 	"testing"
@@ -15,215 +16,180 @@ import (
 
 func createClient() *mongo.Client {
 	var err error
-	client, err := mongo.NewClient(options.Client().ApplyURI(os.Getenv("MONGODB_URI")))
+	opts := options.Client().ApplyURI(os.Getenv("MONGODB_URI"))
+	client, err := mongo.NewClient(opts)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	if err = client.Connect(ctx()); err != nil {
-		panic(err)
+	if err = client.Connect(context.TODO()); err != nil {
+		log.Fatal(err)
+	}
+	if err = client.Ping(context.TODO(), nil); err != nil {
+		log.Fatal(err)
 	}
 	return client
 }
 
+func dropDB(db *mongo.Database) {
+	_ = db.Drop(context.TODO())
+}
+
 func timeout() time.Duration {
-	return 3 * time.Second
+	return 0 * time.Millisecond
 }
 
-func ctx() context.Context {
-	c, _ := context.WithTimeout(context.Background(), timeout())
-	return c
-}
-
-func dropDB(client *mongo.Client, db string) {
-	client.Database(db).Drop(ctx())
+func try(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func TestDefaultSequence(t *testing.T) {
-	dbName := "sequence_test"
 	client := createClient()
+	db := client.Database("sequence_test")
 	// clean test db after test run
-	defer dropDB(client, dbName)
-	// this to ensure collection exists, because create collections cannot be done in multi document transactions
-	client.Database(dbName).CreateCollection(ctx(), DefaultCollectionName)
-	SetupDefaultSequence(client.Database(dbName), timeout())
+	defer func() {
+		dropDB(db)
+		_ = client.Disconnect(context.TODO())
+	}()
+	coll := db.Collection("sequences")
+	sequence.SetupDefaultSequence(coll, timeout())
 
-	Convey("Test default sequence functionalities", t, func() {
+	val, err := sequence.NextVal(sequence.DefaultSequenceName)
+	if assert.NoError(t, err) {
+		assert.Equal(t, 1, val)
 
-		Convey("NextVal should be equals 1", func() {
-			val, err := NextVal(DefaultSequenceName)
-			So(err, ShouldBeNil)
-			So(val, ShouldEqual, 1)
-		})
-		Convey("NextVal should be equals 2", func() {
-			val, err := NextVal(DefaultSequenceName)
-			So(err, ShouldBeNil)
-			So(val, ShouldEqual, 2)
-		})
-		Convey("NextVal should be equals 3", func() {
-			val, err := NextVal(DefaultSequenceName)
-			So(err, ShouldBeNil)
-			So(val, ShouldEqual, 3)
-		})
+		val, err = sequence.NextVal(sequence.DefaultSequenceName)
+		if assert.NoError(t, err) {
+			assert.Equal(t, 2, val)
 
-		Convey("Should be able to query using manual find", func() {
-			coll := client.Database(dbName).Collection(DefaultCollectionName)
-			cursor, err := coll.Find(ctx(), bson.D{{"name", DefaultSequenceName}})
-			So(err, ShouldBeNil)
-			var results []bson.M
-			err = cursor.All(ctx(), &results)
-			So(err, ShouldBeNil)
+			val, err = sequence.NextVal(sequence.DefaultSequenceName)
+			if assert.NoError(t, err) {
+				assert.Equal(t, 3, val)
 
-			Convey("Length should be 1 and value should be 4", func() {
-				So(len(results), ShouldEqual, 1)
-				So(results[0]["value"], ShouldEqual, 4)
-			})
-		})
-	})
+				cursor, err := coll.Find(context.TODO(), bson.D{{Key: "_id", Value: sequence.DefaultSequenceName}})
+				try(err)
+				var results []bson.M
+				err = cursor.All(context.TODO(), &results)
+				try(err)
+
+				assert.Len(t, results, 1)
+				assert.EqualValues(t, 4, results[0]["value"])
+			}
+		}
+	}
 }
 
 func TestNewSequence(t *testing.T) {
 	client := createClient()
-	dbName := "mySequenceDB_Test"
-	collName := "my_sequences"
-	seqName := "mySeq"
+	db := client.Database("mySequenceDB_Test")
 	// clean test db after test run
-	defer dropDB(client, dbName)
-	// this to ensure collection exists, because create collections cannot be done in multi document transactions
-	client.Database(dbName).CreateCollection(ctx(), collName)
+	defer func() {
+		dropDB(db)
+		_ = client.Disconnect(context.TODO())
+	}()
+	coll := db.Collection("my_sequences")
 
-	Convey("Test new sequence functionalities", t, func() {
-		seq := New(client.Database(dbName), collName, timeout())
-		Convey("NextVal should be equals 1", func() {
-			val, err := seq.NextVal(seqName)
-			So(err, ShouldBeNil)
-			So(val, ShouldEqual, 1)
-		})
-		Convey("NextVal should be equals 2", func() {
-			val, err := seq.NextVal(seqName)
-			So(err, ShouldBeNil)
-			So(val, ShouldEqual, 2)
-		})
-		Convey("NextVal should be equals 3", func() {
-			val, err := seq.NextVal(seqName)
-			So(err, ShouldBeNil)
-			So(val, ShouldEqual, 3)
-		})
+	seq := sequence.New(coll, timeout())
+	seqName := "mySeq"
+	val, err := seq.NextVal(seqName)
+	if assert.NoError(t, err) {
+		assert.Equal(t, 1, val)
 
-		Convey("Should be able to queried by manual find", func() {
-			coll := client.Database(dbName).Collection(collName)
-			cursor, err := coll.Find(ctx(), bson.D{{"name", seqName}})
-			So(err, ShouldBeNil)
-			var results []bson.M
-			err = cursor.All(ctx(), &results)
-			So(err, ShouldBeNil)
+		val, err = seq.NextVal(seqName)
+		if assert.NoError(t, err) {
+			assert.Equal(t, 2, val)
 
-			Convey("Length should be 1 and value should be 4", func() {
-				So(len(results), ShouldEqual, 1)
-				So(results[0]["value"], ShouldEqual, 4)
-			})
-		})
-	})
+			val, err = seq.NextVal(seqName)
+			if assert.NoError(t, err) {
+				assert.Equal(t, 3, val)
+
+				cursor, err := coll.Find(context.TODO(), bson.D{{Key: "_id", Value: seqName}})
+				try(err)
+				var results []bson.M
+				err = cursor.All(context.TODO(), &results)
+				try(err)
+
+				assert.Len(t, results, 1)
+				assert.EqualValues(t, 4, results[0]["value"])
+			}
+		}
+	}
 }
 
 func TestConcurrentDefaultSequence(t *testing.T) {
 	n := 1024
 	var wg sync.WaitGroup
-	var (
-		mux    sync.Mutex
-		valMap = make(map[int]int)
-	)
-	dbName := "con_sequence_test"
 	client := createClient()
+	db := client.Database("con_sequence_test")
 	// clean test db after test run
-	defer dropDB(client, dbName)
-	// this to ensure collection exists, because create collections cannot be done in multi document transactions
-	client.Database(dbName).CreateCollection(ctx(), DefaultCollectionName)
-	SetupDefaultSequence(client.Database(dbName), timeout())
+	defer func() {
+		dropDB(db)
+		_ = client.Disconnect(context.TODO())
+	}()
+	coll := db.Collection("sequences")
+	sequence.SetupDefaultSequence(coll, timeout())
 
-	Convey("Test concurrent sequence using defaultSequence", t, func() {
-		Convey(fmt.Sprintf("Run n=%d concurrent sequence request", n), func() {
-			for i := 0; i < n; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					val, err := NextVal(DefaultSequenceName)
-					if err != nil {
-						t.Errorf("NextVal returned an error: %v", err)
-					}
-					mux.Lock()
-					valMap[val] = valMap[val] + 1
-					mux.Unlock()
-				}()
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := sequence.NextVal(sequence.DefaultSequenceName)
+			if err != nil {
+				assert.NoError(t, err)
 			}
-			wg.Wait()
-		})
+		}()
+	}
+	wg.Wait()
 
-		Convey(fmt.Sprintf("Value map's length should be = %d and should not have duplicate value", n), func() {
-			So(len(valMap), ShouldEqual, n)
-			for _, v := range valMap {
-				So(v, ShouldEqual, 1)
-			}
-		})
+	cursor, err := coll.Find(context.TODO(), bson.D{{Key: "_id", Value: sequence.DefaultSequenceName}})
+	try(err)
+	var results []bson.M
+	err = cursor.All(context.TODO(), &results)
+	try(err)
 
-		Convey(fmt.Sprintf("The end value should be %d", n+1), func() {
-			coll := client.Database(dbName).Collection(DefaultCollectionName)
-			cursor, err := coll.Find(ctx(), bson.D{{"name", DefaultSequenceName}})
-			So(err, ShouldBeNil)
-			var results []bson.M
-			err = cursor.All(ctx(), &results)
-			So(err, ShouldBeNil)
-			So(len(results), ShouldEqual, 1)
-			So(results[0]["value"], ShouldEqual, n+1)
-		})
-	})
+	assert.Len(t, results, 1)
+	assert.EqualValues(t, n+1, results[0]["value"])
 }
 
 func TestNewSequenceWithExistingColl(t *testing.T) {
 	client := createClient()
-	dbName := "mySequenceDB_Test"
-	collName := "my_ex_sequences"
+	db := client.Database("mySequenceDB_Test")
+	// clean test db after test run
+	defer func() {
+		dropDB(db)
+		_ = client.Disconnect(context.TODO())
+	}()
+	coll := db.Collection("my_ex_sequences")
 	seqName := "mySeq"
 	wrongSeq := "wrongSeq"
-	// clean test db after test run
-	defer dropDB(client, dbName)
-	// this to ensure collection exists, because create collections cannot be done in multi document transactions
-	client.Database(dbName).CreateCollection(ctx(), collName)
 
-	if _, err := client.Database(dbName).Collection(collName).InsertOne(ctx(), bson.M{"name": seqName, "value": 100}); err != nil {
-		panic(err)
+	if _, err := coll.InsertOne(context.TODO(), bson.M{"_id": seqName, "value": 100}); err != nil {
+		log.Fatal(err)
 	}
-	if _, err := client.Database(dbName).Collection(collName).InsertOne(ctx(), bson.M{"name": wrongSeq, "value": "100"}); err != nil {
-		panic(err)
+	if _, err := coll.InsertOne(context.TODO(), bson.M{"_id": wrongSeq, "value": "100"}); err != nil {
+		log.Fatal(err)
 	}
 
-	Convey("Test sequence with existing sequence", t, func() {
-		Convey("Test existing sequence with correct value", func() {
-			seq := New(client.Database(dbName), collName, timeout())
-			Convey("NextVal should be equals 100", func() {
-				val, err := seq.NextVal(seqName)
-				So(err, ShouldBeNil)
-				So(val, ShouldEqual, 100)
-			})
-			Convey("NextVal should be equals 101", func() {
-				val, err := seq.NextVal(seqName)
-				So(err, ShouldBeNil)
-				So(val, ShouldEqual, 101)
-			})
-			Convey("NextVal should be equals 102", func() {
-				val, err := seq.NextVal(seqName)
-				So(err, ShouldBeNil)
-				So(val, ShouldEqual, 102)
-			})
-		})
+	seq := sequence.New(coll, timeout())
+	val, err := seq.NextVal(seqName)
+	if assert.NoError(t, err) {
+		assert.Equal(t, 100, val)
 
-		Convey("Test existing sequence with wrong value", func() {
-			seq := New(client.Database(dbName), collName, timeout())
-			Convey("String value should return mongo.CommandError", func() {
-				val, err := seq.NextVal(wrongSeq)
-				So(val, ShouldEqual, 0)
-				So(err, ShouldNotBeNil)
-				So(err, ShouldHaveSameTypeAs, mongo.CommandError{})
-			})
-		})
-	})
+		val, err = seq.NextVal(seqName)
+		if assert.NoError(t, err) {
+			assert.Equal(t, 101, val)
+
+			val, err = seq.NextVal(seqName)
+			if assert.NoError(t, err) {
+				assert.Equal(t, 102, val)
+			}
+		}
+	}
+
+	val, err = seq.NextVal(wrongSeq)
+	if assert.Error(t, err) {
+		assert.IsType(t, mongo.CommandError{}, err)
+	}
+	assert.Equal(t, 0, val)
 }

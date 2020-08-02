@@ -10,60 +10,56 @@ import (
 )
 
 const (
-	DefaultCollectionName = "sequences"
-	DefaultSequenceName   = "defaultSeq"
-	DefaultTimeout        = 3 * time.Second
+	DefaultSequenceName = "defaultSeq"
+	DefaultTimeout      = 1000 * time.Millisecond
 )
 
 var ErrNotIntValueType = errors.New("value type is not int")
 
 type Sequence struct {
-	db             *mongo.Database
-	collectionName string
-	timeout        time.Duration
+	coll    *mongo.Collection
+	timeout time.Duration
 }
 
-// New create new Sequence with given database and collection name. An collection might contains multiple sequence,
-// each sequence have unique name. Each sequence operation will use specified timeout, if timeout value is zero then
-// default timeout will be used (default to 3 seconds).
-func New(db *mongo.Database, collectionName string, timeout time.Duration) *Sequence {
+// New create new Sequence with given collection. An collection might contains multiple sequence,
+// each sequence have their name as their id (_id). Each sequence operation will use specified timeout, if timeout value
+// is zero then default timeout will be used (default to 1 seconds).
+func New(coll *mongo.Collection, timeout time.Duration) *Sequence {
 	if timeout == 0 {
 		timeout = DefaultTimeout
 	}
 	return &Sequence{
-		db:             db,
-		collectionName: collectionName,
-		timeout:        timeout,
+		coll:    coll,
+		timeout: timeout,
 	}
 }
 
 var defaultSeq *Sequence
 
 // SetupDefaultSequence setup database and timeout to be used by default sequence
-func SetupDefaultSequence(db *mongo.Database, timeout time.Duration) {
-	defaultSeq = New(db, DefaultCollectionName, timeout)
-}
-
-func (s *Sequence) collection() *mongo.Collection {
-	return s.db.Collection(s.collectionName)
+func SetupDefaultSequence(coll *mongo.Collection, timeout time.Duration) {
+	defaultSeq = New(coll, timeout)
 }
 
 func (s *Sequence) ctx() context.Context {
-	c, _ := context.WithTimeout(context.Background(), s.timeout)
-	return c
+	//c, _ := context.WithTimeout(context.Background(), s.timeout)
+	//return c
+
+	return context.Background()
 }
 
-// NextVal return the value of the sequence with given name then increment it's value,
-// name must not be empty use DefaultSequenceName to use default sequence.
+// NextVal return the value of the sequence with given name then increment it's value, meaning value that are saved
+// in mongodb is the "next" value.
+// Name must not be empty use DefaultSequenceName to use default sequence.
 func (s *Sequence) NextVal(name string) (int, error) {
 	opts := options.FindOneAndUpdate().SetUpsert(true)
-	filter := bson.D{{"name", name}}
+	filter := bson.D{{Key: "_id", Value: name}}
 	inc := bson.M{"$inc": bson.M{"value": 1}}
-	res := s.collection().FindOneAndUpdate(s.ctx(), filter, inc, opts)
+	res := s.coll.FindOneAndUpdate(s.ctx(), filter, inc, opts)
 	if err := res.Err(); err != nil {
 		if err == mongo.ErrNoDocuments {
 			// retry in case the document just been created by last operation
-			res = s.collection().FindOneAndUpdate(s.ctx(), filter, inc, opts)
+			res = s.coll.FindOneAndUpdate(s.ctx(), filter, inc, opts)
 			err = res.Err()
 		}
 		if err != nil {
